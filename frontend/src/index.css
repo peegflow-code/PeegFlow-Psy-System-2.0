@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reset básico */
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  background: #faf7ff;
+  color: #0f172a;
+}
+
+/* Componentes customizados */
+@layer components {
+  .page-bg {
+    background:
+      radial-gradient(1200px 500px at 20% 0%, rgba(157,92,255,.18), transparent 55%),
+      radial-gradient(900px 500px at 90% 10%, rgba(183,138,255,.18), transparent 55%);
+  }
+
+  .glass {
+    @apply bg-white/70 backdrop-blur border border-lilac-100 shadow-soft;
+  }
+
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-lilac-300 focus:border-lilac-300;
+  }
+}
+

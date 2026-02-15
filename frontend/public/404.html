@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Redirecionando...</title>
+  </head>
+  <body>
+    <script>
+      // Redireciona rotas "bonitas" para o HashRouter.
+      // Ex: /admin?tab=patients  -> /#/admin?tab=patients
+      (function () {
+        var path = window.location.pathname || "/";
+        var search = window.location.search || "";
+        var hashTarget = "/#" + path + search;
+        window.location.replace(hashTarget);
+      })();
+    </script>
+  </body>
+</html>
