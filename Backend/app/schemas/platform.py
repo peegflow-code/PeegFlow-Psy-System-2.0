@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
+from app.schemas.tenant import TenantCreateIn, TenantOut, TenantUpdateIn
 
 
 # -------------------------
@@ -29,12 +30,6 @@ class PlatformMeOut(BaseModel):
 # -------------------------
 # Tenants (Clientes)
 # -------------------------
-
-class TenantCreateIn(BaseModel):
-    name: str
-    slug: str
-    license_expires_at: Optional[datetime] = None
-
 
 class TenantOut(BaseModel):
     id: int
