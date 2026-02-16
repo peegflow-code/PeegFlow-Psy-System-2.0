@@ -9,6 +9,9 @@ pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 dias
 
+PLATFORM_ALGORITHM = ALGORITHM
+PLATFORM_TOKEN_EXPIRE_MINUTES = ACCESS_TOKEN_EXPIRE_MINUTES
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
