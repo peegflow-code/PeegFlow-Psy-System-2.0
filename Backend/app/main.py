@@ -34,14 +34,16 @@ async def lifespan(app: FastAPI):
         # ============================
         # 1) SEED: PLATFORM OWNER (VOCÊ)
         # ============================
-        # Configure no Render/ENV:
-        # PLATFORM_ADMIN_EMAIL=PeegFlow@gmail.com
-        # PLATFORM_ADMIN_PASSWORD=... (não commitar)
         owner_email = os.getenv("PLATFORM_ADMIN_EMAIL")
         owner_password = os.getenv("PLATFORM_ADMIN_PASSWORD")
 
         if owner_email and owner_password:
-            existing_owner = db.query(PlatformAdmin).filter(PlatformAdmin.email == owner_email).first()
+            existing_owner = (
+                db.query(PlatformAdmin)
+                .filter(PlatformAdmin.email == owner_email)
+                .first()
+            )
+
             if not existing_owner:
                 db.add(
                     PlatformAdmin(
@@ -54,62 +56,54 @@ async def lifespan(app: FastAPI):
                 print("✅ PLATFORM OWNER seeded:", owner_email)
 
         # ============================
-        # 2) SEED: TENANT DEFAULT (1o psicólogo/cliente)
+        # 2) SEED: TENANT DEFAULT
         # ============================
-        # Configure no Render/ENV (exemplo):
-        # DEFAULT_TENANT_NAME=Cliente Demo
-        # DEFAULT_TENANT_SLUG=demo
         tenant_name = os.getenv("DEFAULT_TENANT_NAME", "Cliente Demo")
         tenant_slug = os.getenv("DEFAULT_TENANT_SLUG", "demo")
 
         t = db.query(Tenant).filter(Tenant.slug == tenant_slug).first()
+
         if not t:
             t = Tenant(
                 name=tenant_name,
                 slug=tenant_slug,
                 is_active=True,
-                license_expires_at=None,  # você controla depois via plataforma
+                license_expires_at=None,
             )
             db.add(t)
-            db.commit()
-            db.refresh(t)
-            print("✅ DEFAULT TENANT seeded:", tenant_slug)
+            db.flush()  # garante que t.id existe antes de criar usuários
 
         # ============================
         # 3) SEED: ADMIN DO TENANT
         # ============================
-        # Configure no Render/ENV (exemplo):
-        # DEFAULT_ADMIN_EMAIL=admin@teste.com
-        # DEFAULT_ADMIN_PASSWORD=123456
         admin_email = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@teste.com")
         admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "123456")
 
-        # ⚠️ IMPORTANTE: email pode repetir em outro tenant no futuro,
-        # então o ideal é (tenant_id + email) ser único.
-        # Por agora vamos buscar por tenant + email.
         tenant_admin = (
             db.query(User)
-            .filter(User.email == admin_email)
-            .filter(User.tenant_id == t.id)
+            .filter(User.email == admin_email, User.tenant_id == t.id)
             .first()
         )
 
         if not tenant_admin:
-            tenant_admin = User(
-                email=admin_email,
-                role="admin",
-                is_active=True,
-                tenant_id=t.id,
-                password_hash=hash_password(admin_password),
+            db.add(
+                User(
+                    email=admin_email,
+                    role="admin",
+                    is_active=True,
+                    tenant_id=t.id,
+                    password_hash=hash_password(admin_password),
+                )
             )
-            db.add(tenant_admin)
-            db.commit()
-            print("✅ TENANT ADMIN seeded:", admin_email, "tenant:", tenant_slug)
+
+        db.commit()  # commit único no final
+        print("✅ DEFAULT TENANT ok:", tenant_slug, "id:", t.id)
+        print("✅ TENANT ADMIN ok:", admin_email)
+
+        yield
 
     finally:
         db.close()
-
-    yield
 
     # ----------------------------
     # SHUTDOWN (opcional)

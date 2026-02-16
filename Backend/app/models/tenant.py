@@ -1,7 +1,9 @@
 from sqlalchemy import String, DateTime, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
+
 from app.database import Base
+
 
 class Tenant(Base):
     __tablename__ = "tenants"
