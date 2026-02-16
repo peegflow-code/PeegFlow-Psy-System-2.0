@@ -25,3 +25,23 @@ def create_access_token(*, subject: str, tenant_id: int) -> str:
         "exp": exp,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+def create_platform_token(*, subject: str) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=PLATFORM_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": subject,
+        "type": "platform_admin",
+        "iat": int(now.timestamp()),
+        "exp": exp,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=PLATFORM_ALGORITHM)
+
+def decode_platform_token(token: str) -> int | None:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[PLATFORM_ALGORITHM])
+        if payload.get("type") != "platform_admin":
+            return None
+        return int(payload.get("sub"))
+    except Exception:
+        return None
