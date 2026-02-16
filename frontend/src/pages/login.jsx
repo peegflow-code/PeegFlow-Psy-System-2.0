@@ -34,19 +34,16 @@ export default function Login({ onLoggedIn }) {
       // ✅ salva antes para o interceptor já enviar X-Tenant-Slug
       saveTenantSlug(slug);
 
-      const form = new URLSearchParams();
-      form.append("tenant_slug", slug);
-      form.append("email", email);
-      form.append("password", password);
-
-      const { data } = await api.post(`/auth/login-tenant`, form, {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+      // ✅ backend espera JSON (igual no Swagger)
+      const { data } = await api.post(`/auth/login-tenant`, {
+        tenant_slug: slug,
+        email,
+        password,
       });
 
       saveToken(data.access_token);
 
+      // ✅ se você manter onLoggedIn, ele precisa apontar para um endpoint existente
       await onLoggedIn?.();
 
       // ✅ redireciona para o tenant correto
@@ -66,12 +63,8 @@ export default function Login({ onLoggedIn }) {
             PF
           </div>
           <div>
-            <div className="text-xl font-semibold leading-tight">
-              PeegFlow
-            </div>
-            <div className="text-sm text-slate-500">
-              Psy System • Login
-            </div>
+            <div className="text-xl font-semibold leading-tight">PeegFlow</div>
+            <div className="text-sm text-slate-500">Psy System • Login</div>
           </div>
         </div>
 
@@ -83,9 +76,7 @@ export default function Login({ onLoggedIn }) {
 
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="text-sm text-slate-600">
-              Clínica / Tenant
-            </label>
+            <label className="text-sm text-slate-600">Clínica / Tenant</label>
             <input
               className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-lilac-300"
               value={tenantSlug}

@@ -74,9 +74,19 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    loadUser();
-  }, []);
+ useEffect(() => {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    setUser(null);
+    setLoading(false);
+    return;
+  }
+
+  // ⚠️ Temporário até criarmos um endpoint /me no backend
+  setUser({ role: "admin" });
+  setLoading(false);
+}, []);
 
   function logout() {
     clearToken();
