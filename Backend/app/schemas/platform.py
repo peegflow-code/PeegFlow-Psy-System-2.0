@@ -3,6 +3,33 @@ from datetime import datetime
 from typing import Optional
 
 
+# -------------------------
+# Auth (Platform Admin)
+# -------------------------
+
+class PlatformLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class PlatformLoginOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class PlatformMeOut(BaseModel):
+    id: int
+    email: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+# -------------------------
+# Tenants (Clientes)
+# -------------------------
+
 class TenantCreateIn(BaseModel):
     name: str
     slug: str
