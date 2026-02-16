@@ -1,99 +1,142 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
+import os
+from datetime import datetime
 
-from app.database import Base, engine, get_db
-from app.core.security import decode_token, hash_password
+from app.database import Base, engine, SessionLocal
+
+# IMPORTA MODELS para o create_all enxergar tudo
+from app.models import (
+    user, tenant, patient, appointment, session_note, expense, platform_admin
+)
 from app.models.user import User
-from app.routes import auth, patients, appointments, session_notes, admin
+from app.models.tenant import Tenant
+from app.models.platform_admin import PlatformAdmin
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+from app.core.security import hash_password
+
+# ROUTERS
+from app.routes import auth, patients, appointments, session_notes, admin
+# ✅ NOVO: rota da dona do sistema (SuperAdmin)
+from app.routes import platform
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Código executado no STARTUP
+    # ----------------------------
+    # STARTUP
+    # ----------------------------
     Base.metadata.create_all(bind=engine)
-    from app.database import SessionLocal
+
     db = SessionLocal()
     try:
-        email = "admin@teste.com"
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            # Só cria e define a senha se o usuário NÃO existir
-            user = User(
-                email=email, 
-                role="admin", 
+        # ============================
+        # 1) SEED: PLATFORM OWNER (VOCÊ)
+        # ============================
+        # Configure no Render/ENV:
+        # PLATFORM_ADMIN_EMAIL=PeegFlow@gmail.com
+        # PLATFORM_ADMIN_PASSWORD=... (não commitar)
+        owner_email = os.getenv("PLATFORM_ADMIN_EMAIL")
+        owner_password = os.getenv("PLATFORM_ADMIN_PASSWORD")
+
+        if owner_email and owner_password:
+            existing_owner = db.query(PlatformAdmin).filter(PlatformAdmin.email == owner_email).first()
+            if not existing_owner:
+                db.add(
+                    PlatformAdmin(
+                        email=owner_email,
+                        password_hash=hash_password(owner_password),
+                        is_active=True,
+                    )
+                )
+                db.commit()
+                print("✅ PLATFORM OWNER seeded:", owner_email)
+
+        # ============================
+        # 2) SEED: TENANT DEFAULT (1o psicólogo/cliente)
+        # ============================
+        # Configure no Render/ENV (exemplo):
+        # DEFAULT_TENANT_NAME=Cliente Demo
+        # DEFAULT_TENANT_SLUG=demo
+        tenant_name = os.getenv("DEFAULT_TENANT_NAME", "Cliente Demo")
+        tenant_slug = os.getenv("DEFAULT_TENANT_SLUG", "demo")
+
+        t = db.query(Tenant).filter(Tenant.slug == tenant_slug).first()
+        if not t:
+            t = Tenant(
+                name=tenant_name,
+                slug=tenant_slug,
                 is_active=True,
-                password_hash=hash_password("123456")
+                license_expires_at=None,  # você controla depois via plataforma
             )
-            db.add(user)
+            db.add(t)
             db.commit()
-            print("SEED ADMIN OK:", email)
+            db.refresh(t)
+            print("✅ DEFAULT TENANT seeded:", tenant_slug)
+
+        # ============================
+        # 3) SEED: ADMIN DO TENANT
+        # ============================
+        # Configure no Render/ENV (exemplo):
+        # DEFAULT_ADMIN_EMAIL=admin@teste.com
+        # DEFAULT_ADMIN_PASSWORD=123456
+        admin_email = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@teste.com")
+        admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "123456")
+
+        # ⚠️ IMPORTANTE: email pode repetir em outro tenant no futuro,
+        # então o ideal é (tenant_id + email) ser único.
+        # Por agora vamos buscar por tenant + email.
+        tenant_admin = (
+            db.query(User)
+            .filter(User.email == admin_email)
+            .filter(User.tenant_id == t.id)
+            .first()
+        )
+
+        if not tenant_admin:
+            tenant_admin = User(
+                email=admin_email,
+                role="admin",
+                is_active=True,
+                tenant_id=t.id,
+                password_hash=hash_password(admin_password),
+            )
+            db.add(tenant_admin)
+            db.commit()
+            print("✅ TENANT ADMIN seeded:", admin_email, "tenant:", tenant_slug)
+
     finally:
         db.close()
+
     yield
-    # Código executado no SHUTDOWN (se necessário)
+
+    # ----------------------------
+    # SHUTDOWN (opcional)
+    # ----------------------------
+
 
 app = FastAPI(title="PeegFlow - Psy System API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # depois você restringe pro domínio do frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    user_id = decode_token(token)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token inválido")
-
-    user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Usuário não encontrado")
-    return user
-
-def dep_current_user():
-    return Depends(get_current_user)
-
+# ✅ Rotas normais
 app.include_router(auth.router)
-app.include_router(patients.router, dependencies=[dep_current_user()])
-app.include_router(appointments.router, dependencies=[dep_current_user()])
-app.include_router(session_notes.router, dependencies=[dep_current_user()])
-app.include_router(admin.router, dependencies=[dep_current_user()])
+app.include_router(patients.router)
+app.include_router(appointments.router)
+app.include_router(session_notes.router)
+app.include_router(admin.router)
+
+# ✅ Rotas da dona do sistema (SuperAdmin / Platform)
+app.include_router(platform.router)
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
-
-@app.get("/auth/me")
-def me(current_user: User = Depends(get_current_user)):
-    return {"id": current_user.id, "email": current_user.email, "role": current_user.role}
-
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
-
-    from app.database import SessionLocal
-    db = SessionLocal()
-    try:
-        email = "admin@teste.com"
-        password = "123456"
-
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            user = User(email=email, role="admin", is_active=True)
-            db.add(user)
-
-        # Sempre força a senha correta
-        user.password_hash = hash_password(password)
-        user.role = "admin"
-        user.is_active = True
-
-        db.commit()
-        print("SEED ADMIN OK:", email)
-    finally:
-        db.close()
+    return {"status": "ok", "ts": datetime.utcnow().isoformat()}
