@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useParams } from "react-router-dom";
-import { api } from "../lib/api";
 import { clearToken } from "../lib/auth";
 
 import Login from "../pages/login";
@@ -49,7 +48,6 @@ function TenantRoot({ user }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  // manda para a área certa dentro do tenant
   return (
     <Navigate
       to={user.role === "admin" ? `/t/${slug}/admin` : `/t/${slug}/patient`}
@@ -62,31 +60,28 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadUser() {
-    try {
-      const { data } = await api.get("/auth/me");
-      setUser(data);
-    } catch {
-      clearToken();
+  // ✅ Login “por token” (sem /auth/me)
+  // Até você criar um endpoint /me no backend.
+  function loadUser() {
+    const token = localStorage.getItem("token");
+    const slug = getTenantSlug();
+
+    if (!token || !slug) {
       setUser(null);
-    } finally {
       setLoading(false);
+      return;
     }
-  }
 
- useEffect(() => {
-  const token = localStorage.getItem("token");
-
-  if (!token) {
-    setUser(null);
+    // ⚠️ Temporário:
+    // assume admin (porque seu login inicial é do psicólogo/admin do tenant).
+    // Quando você criar /auth/me no backend, aqui você busca role/email real.
+    setUser({ role: "admin", email: localStorage.getItem("last_email") || "" });
     setLoading(false);
-    return;
   }
 
-  // ⚠️ Temporário até criarmos um endpoint /me no backend
-  setUser({ role: "admin" });
-  setLoading(false);
-}, []);
+  useEffect(() => {
+    loadUser();
+  }, []);
 
   function logout() {
     clearToken();
@@ -102,13 +97,19 @@ export default function App() {
       {/* Login */}
       <Route
         path="/login"
-        element={user ? <Navigate to={slug ? `/t/${slug}` : "/"} replace /> : <Login onLoggedIn={loadUser} />}
+        element={
+          user ? (
+            <Navigate to={slug ? `/t/${slug}` : "/"} replace />
+          ) : (
+            <Login onLoggedIn={loadUser} />
+          )
+        }
       />
 
-      {/* ✅ NOVO: Tenant root */}
+      {/* ✅ Tenant root */}
       <Route path="/t/:slug" element={<TenantRoot user={user} />} />
 
-      {/* ✅ NOVO: Admin dentro do tenant */}
+      {/* ✅ Admin dentro do tenant */}
       <Route
         path="/t/:slug/admin"
         element={
@@ -126,7 +127,7 @@ export default function App() {
         <Route path="session-notes" element={<SessionNotes />} />
       </Route>
 
-      {/* ✅ NOVO: Patient dentro do tenant */}
+      {/* ✅ Patient dentro do tenant */}
       <Route
         path="/t/:slug/patient"
         element={
@@ -138,17 +139,25 @@ export default function App() {
         }
       />
 
-      {/* ✅ COMPAT: rotas antigas redirecionam pro tenant salvo */}
+      {/* ✅ compat: rotas antigas */}
       <Route
         path="/admin"
         element={
-          slug ? <Navigate to={`/t/${slug}/admin`} replace /> : <Navigate to="/login" replace />
+          slug ? (
+            <Navigate to={`/t/${slug}/admin`} replace />
+          ) : (
+            <Navigate to="/login" replace />
+          )
         }
       />
       <Route
         path="/patient"
         element={
-          slug ? <Navigate to={`/t/${slug}/patient`} replace /> : <Navigate to="/login" replace />
+          slug ? (
+            <Navigate to={`/t/${slug}/patient`} replace />
+          ) : (
+            <Navigate to="/login" replace />
+          )
         }
       />
 
@@ -157,7 +166,11 @@ export default function App() {
         path="/"
         element={
           user ? (
-            slug ? <Navigate to={`/t/${slug}`} replace /> : <Navigate to="/login" replace />
+            slug ? (
+              <Navigate to={`/t/${slug}`} replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
           ) : (
             <Navigate to="/login" replace />
           )
