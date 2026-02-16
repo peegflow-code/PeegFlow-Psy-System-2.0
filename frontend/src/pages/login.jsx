@@ -10,7 +10,9 @@ function saveTenantSlug(slug) {
 export default function Login({ onLoggedIn }) {
   const nav = useNavigate();
 
-  const [tenantSlug, setTenantSlug] = useState(localStorage.getItem("tenant_slug") || "demo");
+  const [tenantSlug, setTenantSlug] = useState(
+    localStorage.getItem("tenant_slug") || "demo"
+  );
   const [email, setEmail] = useState("admin@teste.com");
   const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
@@ -29,21 +31,25 @@ export default function Login({ onLoggedIn }) {
         return;
       }
 
+      // ✅ salva antes para o interceptor já enviar X-Tenant-Slug
+      saveTenantSlug(slug);
+
       const form = new URLSearchParams();
-      form.append("username", email);
+      form.append("tenant_slug", slug);
+      form.append("email", email);
       form.append("password", password);
 
-      // ✅ SaaS: login por tenant
-      const { data } = await api.post(`/auth/login/${slug}`, form, {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      const { data } = await api.post(`/auth/login-tenant`, form, {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
       });
 
-      saveTenantSlug(slug);
       saveToken(data.access_token);
 
       await onLoggedIn?.();
 
-      // ✅ entra no tenant correto
+      // ✅ redireciona para o tenant correto
       nav(`/t/${slug}`);
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "Falha no login");
@@ -60,8 +66,12 @@ export default function Login({ onLoggedIn }) {
             PF
           </div>
           <div>
-            <div className="text-xl font-semibold leading-tight">PeegFlow</div>
-            <div className="text-sm text-slate-500">Psy System • Login</div>
+            <div className="text-xl font-semibold leading-tight">
+              PeegFlow
+            </div>
+            <div className="text-sm text-slate-500">
+              Psy System • Login
+            </div>
           </div>
         </div>
 
@@ -73,7 +83,9 @@ export default function Login({ onLoggedIn }) {
 
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <label className="text-sm text-slate-600">Clínica / Tenant</label>
+            <label className="text-sm text-slate-600">
+              Clínica / Tenant
+            </label>
             <input
               className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-lilac-300"
               value={tenantSlug}
@@ -83,7 +95,8 @@ export default function Login({ onLoggedIn }) {
               required
             />
             <div className="text-xs text-slate-500 mt-1">
-              Use um código curto (slug). Ex: <span className="font-medium">ana</span>
+              Use um código curto (slug). Ex:{" "}
+              <span className="font-medium">ana</span>
             </div>
           </div>
 
