@@ -1,20 +1,28 @@
-from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Float
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Column, Integer, String, ForeignKey, Date, Text
+from sqlalchemy.orm import relationship
 from app.database import Base
 
-class Appointment(Base):
-    __tablename__ = "appointments"
+class Patient(Base):
+    __tablename__ = "patients"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
 
-    start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
-    status: Mapped[str] = mapped_column(String, default="available")
-    # available | booked | done | canceled | no_show
+    full_name = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
 
-    price: Mapped[float] = mapped_column(Float, default=0.0)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user = relationship("User", back_populates="patient", lazy="joined")
 
-    patient_user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    patient_user = relationship("User")
+    birth_date = Column(Date, nullable=True)
+    sex = Column(String(20), nullable=True)
+    marital_status = Column(String(30), nullable=True)
+    address = Column(Text, nullable=True)
+    occupation = Column(String(120), nullable=True)
+
+    emergency_name = Column(String(120), nullable=True)
+    emergency_phone = Column(String(40), nullable=True)
+
+    document_id = Column(String(60), nullable=True)

@@ -28,10 +28,6 @@ def range_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Admin: vê todos os horários no range (available/booked/done/canceled/no_show)
-    Patient: vê apenas os próprios agendamentos
-    """
     try:
         d1 = datetime.strptime(date_from, "%Y-%m-%d")
         d2 = datetime.strptime(date_to, "%Y-%m-%d")
@@ -41,18 +37,31 @@ def range_list(
     start = datetime(d1.year, d1.month, d1.day, 0, 0, 0)
     end = datetime(d2.year, d2.month, d2.day, 23, 59, 59)
 
-    q = db.query(Appointment).filter(Appointment.start_at >= start, Appointment.start_at <= end)
+    q = (
+        db.query(Appointment)
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.start_at >= start,
+            Appointment.start_at <= end,
+        )
+    )
 
     if current_user.role == "patient":
         q = q.filter(Appointment.patient_user_id == current_user.id)
 
     appts = q.order_by(Appointment.start_at.asc()).all()
 
-    # pega pacientes relacionados (por user_id)
     user_ids = [a.patient_user_id for a in appts if a.patient_user_id]
     patients_map = {}
     if user_ids:
-        pts = db.query(Patient).filter(Patient.user_id.in_(user_ids)).all()
+        pts = (
+            db.query(Patient)
+            .filter(
+                Patient.tenant_id == current_user.tenant_id,
+                Patient.user_id.in_(user_ids),
+            )
+            .all()
+        )
         patients_map = {p.user_id: p for p in pts}
 
     return [_as_out(a, patients_map.get(a.patient_user_id)) for a in appts]
@@ -60,9 +69,15 @@ def range_list(
 
 @router.get("/available", response_model=list[AppointmentOut])
 def available(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    now = datetime.utcnow()
+
     appts = (
         db.query(Appointment)
-        .filter(Appointment.status == "available")
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.status == "available",
+            Appointment.start_at >= now,  # ✅ não mostra horários passados
+        )
         .order_by(Appointment.start_at.asc())
         .all()
     )
@@ -76,7 +91,10 @@ def mine(db: Session = Depends(get_db), current_user: User = Depends(get_current
 
     appts = (
         db.query(Appointment)
-        .filter(Appointment.patient_user_id == current_user.id)
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.patient_user_id == current_user.id,
+        )
         .order_by(Appointment.start_at.desc())
         .all()
     )
@@ -88,25 +106,49 @@ def book(data: BookIn, db: Session = Depends(get_db), current_user: User = Depen
     if current_user.role != "patient":
         raise HTTPException(status_code=403, detail="Apenas paciente")
 
-    appt = db.query(Appointment).filter(Appointment.id == data.appointment_id).first()
+    appt = (
+        db.query(Appointment)
+        .filter(
+            Appointment.id == data.appointment_id,
+            Appointment.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not appt:
         raise HTTPException(status_code=404, detail="Consulta não encontrada")
     if appt.status != "available":
         raise HTTPException(status_code=400, detail="Horário indisponível")
+
+    # ✅ trava: não deixa agendar passado
+    if appt.start_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Não é possível agendar um horário no passado")
 
     appt.status = "booked"
     appt.patient_user_id = current_user.id
     db.commit()
     db.refresh(appt)
 
-    # para o paciente não precisa de nome, mas não atrapalha
-    patient = db.query(Patient).filter(Patient.user_id == appt.patient_user_id).first()
+    patient = (
+        db.query(Patient)
+        .filter(
+            Patient.tenant_id == current_user.tenant_id,
+            Patient.user_id == appt.patient_user_id,
+        )
+        .first()
+    )
     return _as_out(appt, patient)
 
 
 @router.post("/cancel", response_model=AppointmentOut)
 def cancel(data: CancelIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    appt = db.query(Appointment).filter(Appointment.id == data.appointment_id).first()
+    appt = (
+        db.query(Appointment)
+        .filter(
+            Appointment.id == data.appointment_id,
+            Appointment.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not appt:
         raise HTTPException(status_code=404, detail="Consulta não encontrada")
 
@@ -117,31 +159,41 @@ def cancel(data: CancelIn, db: Session = Depends(get_db), current_user: User = D
             raise HTTPException(status_code=400, detail="Só booked pode ser cancelada pelo paciente")
 
     if current_user.role == "admin":
-        # admin pode cancelar booked (e até available se quiser “bloquear”)
         if appt.status not in ("booked", "available"):
             raise HTTPException(status_code=400, detail="Status inválido para cancelamento")
 
     appt.status = "canceled"
     db.commit()
     db.refresh(appt)
-    patient = db.query(Patient).filter(Patient.user_id == appt.patient_user_id).first() if appt.patient_user_id else None
+
+    patient = None
+    if appt.patient_user_id:
+        patient = (
+            db.query(Patient)
+            .filter(
+                Patient.tenant_id == current_user.tenant_id,
+                Patient.user_id == appt.patient_user_id,
+            )
+            .first()
+        )
     return _as_out(appt, patient)
 
 
 @router.post("/set-status", response_model=AppointmentOut)
 def set_status(data: SetStatusIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """
-    Admin marca: done (compareceu), no_show (faltou), canceled (cancelada).
-    """
     require_admin(current_user)
 
-    appt = db.query(Appointment).filter(Appointment.id == data.appointment_id).first()
+    appt = (
+        db.query(Appointment)
+        .filter(
+            Appointment.id == data.appointment_id,
+            Appointment.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not appt:
         raise HTTPException(status_code=404, detail="Consulta não encontrada")
 
-    # regra simples: só faz sentido alterar se já existe horário
-    # booked -> done/no_show/canceled
-    # available -> (não mexe normalmente)
     if appt.status == "available" and data.status in ("done", "no_show"):
         raise HTTPException(status_code=400, detail="Não dá pra marcar done/no_show em horário disponível (sem paciente)")
 
@@ -149,7 +201,16 @@ def set_status(data: SetStatusIn, db: Session = Depends(get_db), current_user: U
     db.commit()
     db.refresh(appt)
 
-    patient = db.query(Patient).filter(Patient.user_id == appt.patient_user_id).first() if appt.patient_user_id else None
+    patient = None
+    if appt.patient_user_id:
+        patient = (
+            db.query(Patient)
+            .filter(
+                Patient.tenant_id == current_user.tenant_id,
+                Patient.user_id == appt.patient_user_id,
+            )
+            .first()
+        )
     return _as_out(appt, patient)
 
 
@@ -177,12 +238,17 @@ def bulk_generate(data: BulkGenerateIn, db: Session = Depends(get_db), current_u
     while cur + dur <= end_dt:
         exists = (
             db.query(Appointment)
-            .filter(Appointment.start_at == cur, Appointment.end_at == cur + dur)
+            .filter(
+                Appointment.tenant_id == current_user.tenant_id,
+                Appointment.start_at == cur,
+                Appointment.end_at == cur + dur,
+            )
             .first()
         )
         if not exists:
             db.add(
                 Appointment(
+                    tenant_id=current_user.tenant_id,
                     start_at=cur,
                     end_at=cur + dur,
                     status="available",

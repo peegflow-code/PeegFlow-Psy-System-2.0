@@ -17,7 +17,13 @@ def list_patients(
     current_user: User = Depends(get_current_user),
 ):
     require_admin(current_user)
-    return db.query(Patient).order_by(Patient.full_name.asc()).all()
+
+    return (
+        db.query(Patient)
+        .filter(Patient.tenant_id == current_user.tenant_id)
+        .order_by(Patient.full_name.asc())
+        .all()
+    )
 
 
 @router.post("", response_model=PatientOut)
@@ -29,14 +35,22 @@ def create_patient(
     require_admin(current_user)
 
     if data.create_user and data.email:
-        existing = db.query(User).filter(User.email == data.email).first()
+        existing = (
+            db.query(User)
+            .filter(
+                User.tenant_id == current_user.tenant_id,
+                User.email == data.email.lower().strip(),
+            )
+            .first()
+        )
         if existing:
-            raise HTTPException(status_code=400, detail="Já existe um usuário com esse email")
+            raise HTTPException(status_code=400, detail="Já existe um usuário com esse email neste consultório")
 
     p = Patient(
+        tenant_id=current_user.tenant_id,
         full_name=data.full_name,
         phone=data.phone,
-        email=data.email,
+        email=(data.email.lower().strip() if data.email else None),
         birth_date=data.birth_date,
         sex=data.sex,
         marital_status=data.marital_status,
@@ -52,7 +66,8 @@ def create_patient(
             raise HTTPException(status_code=400, detail="Para criar acesso, o paciente precisa ter email")
 
         u = User(
-            email=data.email,
+            tenant_id=current_user.tenant_id,
+            email=data.email.lower().strip(),
             role="patient",
             is_active=True,
             password_hash=hash_password(data.user_password),
@@ -76,11 +91,24 @@ def update_patient(
 ):
     require_admin(current_user)
 
-    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    p = (
+        db.query(Patient)
+        .filter(
+            Patient.id == patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not p:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
-    for field, value in data.dict(exclude_unset=True).items():
+    payload = data.dict(exclude_unset=True)
+
+    # normaliza email se veio
+    if "email" in payload and payload["email"]:
+        payload["email"] = payload["email"].lower().strip()
+
+    for field, value in payload.items():
         setattr(p, field, value)
 
     db.commit()
@@ -96,13 +124,27 @@ def remove_patient_access(
 ):
     require_admin(current_user)
 
-    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    p = (
+        db.query(Patient)
+        .filter(
+            Patient.id == patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not p:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
-    # ✅ Melhoria: desativa o user também (mantém histórico, mas remove acesso)
+    # desativa o user também (mantém histórico, mas remove acesso)
     if p.user_id:
-        u = db.query(User).filter(User.id == p.user_id).first()
+        u = (
+            db.query(User)
+            .filter(
+                User.id == p.user_id,
+                User.tenant_id == current_user.tenant_id,
+            )
+            .first()
+        )
         if u and u.role == "patient":
             u.is_active = False
 
@@ -111,7 +153,6 @@ def remove_patient_access(
     return {"ok": True}
 
 
-# ✅ NOVO: reativar/criar acesso do paciente
 @router.post("/{patient_id}/access", response_model=PatientOut)
 def create_or_restore_access(
     patient_id: int,
@@ -121,21 +162,42 @@ def create_or_restore_access(
 ):
     require_admin(current_user)
 
-    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    p = (
+        db.query(Patient)
+        .filter(
+            Patient.id == patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not p:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
     if not p.email:
         raise HTTPException(status_code=400, detail="Paciente precisa ter email para criar/reativar acesso")
 
-    # tenta por user_id primeiro
+    # tenta por user_id primeiro (sempre no tenant)
     user = None
     if p.user_id:
-        user = db.query(User).filter(User.id == p.user_id).first()
+        user = (
+            db.query(User)
+            .filter(
+                User.id == p.user_id,
+                User.tenant_id == current_user.tenant_id,
+            )
+            .first()
+        )
 
-    # se não tiver, tenta pelo email
+    # se não tiver, tenta pelo email (sempre no tenant)
     if not user:
-        user = db.query(User).filter(User.email == p.email).first()
+        user = (
+            db.query(User)
+            .filter(
+                User.tenant_id == current_user.tenant_id,
+                User.email == p.email.lower().strip(),
+            )
+            .first()
+        )
 
     if user:
         user.role = "patient"
@@ -143,7 +205,8 @@ def create_or_restore_access(
         user.password_hash = hash_password(data.password)
     else:
         user = User(
-            email=p.email,
+            tenant_id=current_user.tenant_id,
+            email=p.email.lower().strip(),
             role="patient",
             is_active=True,
             password_hash=hash_password(data.password),
@@ -157,7 +220,6 @@ def create_or_restore_access(
     return p
 
 
-# ✅ NOVO: excluir paciente
 @router.delete("/{patient_id}")
 def delete_patient(
     patient_id: int,
@@ -166,13 +228,27 @@ def delete_patient(
 ):
     require_admin(current_user)
 
-    p = db.query(Patient).filter(Patient.id == patient_id).first()
+    p = (
+        db.query(Patient)
+        .filter(
+            Patient.id == patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not p:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
     # opcional: desativa o usuário vinculado (mantém histórico, evita login futuro)
     if p.user_id:
-        u = db.query(User).filter(User.id == p.user_id).first()
+        u = (
+            db.query(User)
+            .filter(
+                User.id == p.user_id,
+                User.tenant_id == current_user.tenant_id,
+            )
+            .first()
+        )
         if u and u.role == "patient":
             u.is_active = False
 

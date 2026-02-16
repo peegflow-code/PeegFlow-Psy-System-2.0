@@ -37,10 +37,6 @@ def _parse_day(day: str) -> tuple[datetime, datetime]:
 
 
 def _parse_range(date_from: str, date_to: str) -> tuple[datetime, datetime]:
-    """
-    date_from/date_to: YYYY-MM-DD
-    range inclusivo (até 23:59:59 do date_to)
-    """
     try:
         d1 = datetime.strptime(date_from, "%Y-%m-%d").date()
         d2 = datetime.strptime(date_to, "%Y-%m-%d").date()
@@ -54,48 +50,45 @@ def _parse_range(date_from: str, date_to: str) -> tuple[datetime, datetime]:
 
 @router.get("/finance/summary", response_model=FinanceSummaryOut)
 def finance_summary(
-    # ✅ NOVO: período custom (preferência máxima)
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-
-    # antigos (mantidos pra compatibilidade)
     month: Optional[str] = None,
     day: Optional[str] = None,
-
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     require_admin(current_user)
 
-    # 1) Se vier date_from/date_to: usa isso
     if date_from and date_to:
         start, end = _parse_range(date_from, date_to)
         period = f"{date_from} → {date_to}"
-
-    # 2) Se vier day: usa day
     elif day:
         start, end = _parse_day(day)
         period = day
-
-    # 3) Senão usa month (ou mês atual)
     else:
         month = month or datetime.utcnow().strftime("%Y-%m")
         start, end = _parse_month(month)
         period = month
 
-    # Entradas: consultas concluídas (done)
     done_appts = (
         db.query(Appointment)
-        .filter(Appointment.status == "done")
-        .filter(Appointment.start_at >= start, Appointment.start_at <= end)
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.status == "done",
+            Appointment.start_at >= start,
+            Appointment.start_at <= end,
+        )
         .all()
     )
     income = float(sum((a.price or 0) for a in done_appts))
 
-    # Despesas
     expenses = (
         db.query(Expense)
-        .filter(Expense.spent_at >= start, Expense.spent_at <= end)
+        .filter(
+            Expense.tenant_id == current_user.tenant_id,
+            Expense.spent_at >= start,
+            Expense.spent_at <= end,
+        )
         .order_by(Expense.spent_at.desc())
         .all()
     )
@@ -103,9 +96,7 @@ def finance_summary(
 
     cash = income - expense_total
 
-    # Série diária (para gráfico em linha)
     daily_income = []
-    # só faz daily se o período for maior que 1 dia
     days_span = (end.date() - start.date()).days
     if days_span >= 1:
         cur = datetime.combine(start.date(), datetime.min.time())
@@ -120,11 +111,14 @@ def finance_summary(
             daily_income.append({"day": cur.strftime("%Y-%m-%d"), "income": round(day_sum, 2)})
             cur = nxt
 
-    # Contagens por status
-    status_counts = {"available": 0, "booked": 0, "done": 0, "canceled": 0}
+    status_counts = {"available": 0, "booked": 0, "done": 0, "canceled": 0, "no_show": 0}
     appts_all = (
         db.query(Appointment)
-        .filter(Appointment.start_at >= start, Appointment.start_at <= end)
+        .filter(
+            Appointment.tenant_id == current_user.tenant_id,
+            Appointment.start_at >= start,
+            Appointment.start_at <= end,
+        )
         .all()
     )
     for a in appts_all:
@@ -143,7 +137,6 @@ def finance_summary(
 
 @router.get("/expenses", response_model=list[ExpenseOut])
 def list_expenses(
-    # ✅ pode listar por month (mantém)
     month: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -152,7 +145,11 @@ def list_expenses(
     start, end = _parse_month(month)
     return (
         db.query(Expense)
-        .filter(Expense.spent_at >= start, Expense.spent_at < end)
+        .filter(
+            Expense.tenant_id == current_user.tenant_id,
+            Expense.spent_at >= start,
+            Expense.spent_at < end,
+        )
         .order_by(Expense.spent_at.desc())
         .all()
     )
@@ -171,6 +168,7 @@ def create_expense(
         spent_at = datetime.combine(spent_at, datetime.min.time())
 
     e = Expense(
+        tenant_id=current_user.tenant_id,
         title=data.title,
         amount=float(data.amount),
         spent_at=spent_at,
@@ -189,7 +187,14 @@ def delete_expense(
     current_user: User = Depends(get_current_user),
 ):
     require_admin(current_user)
-    e = db.query(Expense).filter(Expense.id == expense_id).first()
+    e = (
+        db.query(Expense)
+        .filter(
+            Expense.id == expense_id,
+            Expense.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not e:
         raise HTTPException(status_code=404, detail="Despesa não encontrada")
     db.delete(e)

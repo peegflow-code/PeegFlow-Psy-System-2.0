@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import Shell from "../../ui/Shell";
 
 function Tab({ to, label }) {
@@ -22,6 +22,10 @@ function Tab({ to, label }) {
 }
 
 export default function AdminShell({ user, onLogout }) {
+  const { slug } = useParams(); // ✅ /t/:slug/admin/...
+
+  const base = slug ? `/t/${slug}/admin` : "/admin";
+
   return (
     <Shell
       title="Painel Admin"
@@ -29,11 +33,11 @@ export default function AdminShell({ user, onLogout }) {
       onLogout={onLogout}
       nav={
         <>
-          <Tab to="/admin" label="Dashboard" />
-          <Tab to="/admin/agenda" label="Agenda" />
-          <Tab to="/admin/patients" label="Pacientes" />
-          <Tab to="/admin/finance" label="Financeiro" />
-          <Tab to="/admin/session-notes" label="Prontuários" />
+          <Tab to={`${base}`} label="Dashboard" />
+          <Tab to={`${base}/agenda`} label="Agenda" />
+          <Tab to={`${base}/patients`} label="Pacientes" />
+          <Tab to={`${base}/finance`} label="Financeiro" />
+          <Tab to={`${base}/session-notes`} label="Prontuários" />
         </>
       }
     >

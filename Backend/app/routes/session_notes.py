@@ -22,18 +22,7 @@ from app.deps import get_current_user, require_admin
 router = APIRouter(prefix="/session-notes", tags=["Session Notes"])
 
 
-# ---------------------------------------------------------------------
-# Utils
-# ---------------------------------------------------------------------
-
 def _normalize_session_date(value):
-    """
-    Normaliza session_date recebido do frontend:
-    - date
-    - datetime
-    - string YYYY-MM-DD
-    - string DD/MM/YYYY
-    """
     if value is None:
         return None
 
@@ -63,10 +52,6 @@ def _normalize_session_date(value):
     return None
 
 
-# ---------------------------------------------------------------------
-# Create
-# ---------------------------------------------------------------------
-
 @router.post("", response_model=SessionNoteOut)
 def create_note(
     data: SessionNoteCreateIn,
@@ -75,7 +60,14 @@ def create_note(
 ):
     require_admin(current_user)
 
-    patient = db.query(Patient).filter(Patient.id == data.patient_id).first()
+    patient = (
+        db.query(Patient)
+        .filter(
+            Patient.id == data.patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
@@ -83,6 +75,7 @@ def create_note(
     session_date = parsed_date or datetime.utcnow().date()
 
     note = SessionNote(
+        tenant_id=current_user.tenant_id,
         patient_id=data.patient_id,
         appointment_id=data.appointment_id,
         content=data.content,
@@ -98,10 +91,6 @@ def create_note(
     return note
 
 
-# ---------------------------------------------------------------------
-# Update
-# ---------------------------------------------------------------------
-
 @router.patch("/{note_id}", response_model=SessionNoteOut)
 def update_note(
     note_id: int,
@@ -111,7 +100,14 @@ def update_note(
 ):
     require_admin(current_user)
 
-    note = db.query(SessionNote).filter(SessionNote.id == note_id).first()
+    note = (
+        db.query(SessionNote)
+        .filter(
+            SessionNote.id == note_id,
+            SessionNote.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not note:
         raise HTTPException(status_code=404, detail="Prontuário não encontrado")
 
@@ -134,10 +130,6 @@ def update_note(
     return note
 
 
-# ---------------------------------------------------------------------
-# List by patient / month
-# ---------------------------------------------------------------------
-
 @router.get("/patient/{patient_id}", response_model=list[SessionNoteOut])
 def list_by_patient_month(
     patient_id: int,
@@ -146,6 +138,18 @@ def list_by_patient_month(
     current_user: User = Depends(get_current_user),
 ):
     require_admin(current_user)
+
+    # garante que o paciente é do tenant
+    patient = (
+        db.query(Patient)
+        .filter(
+            Patient.id == patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
+    if not patient:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
     try:
         start = datetime.strptime(month + "-01", "%Y-%m-%d").date()
@@ -159,18 +163,17 @@ def list_by_patient_month(
 
     notes = (
         db.query(SessionNote)
-        .filter(SessionNote.patient_id == patient_id)
-        .filter(SessionNote.session_date >= start)
-        .filter(SessionNote.session_date < end)
+        .filter(
+            SessionNote.tenant_id == current_user.tenant_id,
+            SessionNote.patient_id == patient_id,
+            SessionNote.session_date >= start,
+            SessionNote.session_date < end,
+        )
         .order_by(SessionNote.session_date.desc(), SessionNote.id.desc())
         .all()
     )
     return notes
 
-
-# ---------------------------------------------------------------------
-# PDF
-# ---------------------------------------------------------------------
 
 def _pdf_for_note(note: SessionNote, patient_name: str) -> bytes:
     buffer = BytesIO()
@@ -185,7 +188,7 @@ def _pdf_for_note(note: SessionNote, patient_name: str) -> bytes:
     c.setFont("Helvetica", 11)
     c.drawString(50, y, f"Paciente: {patient_name}")
     y -= 18
-    c.drawString(50, y, f"Data da sessão: {note.session_date.strftime('%d/%m/%Y')}")
+    c.drawString(50, y, f"Data da sessão: {note.session_date.strftime('%d/%m/%Y') if note.session_date else '-'}")
     y -= 18
     c.drawString(50, y, f"Registrado em: {note.created_at.strftime('%d/%m/%Y %H:%M')}")
     y -= 18
@@ -219,11 +222,25 @@ def download_pdf(
 ):
     require_admin(current_user)
 
-    note = db.query(SessionNote).filter(SessionNote.id == note_id).first()
+    note = (
+        db.query(SessionNote)
+        .filter(
+            SessionNote.id == note_id,
+            SessionNote.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     if not note:
         raise HTTPException(status_code=404, detail="Prontuário não encontrado")
 
-    patient = db.query(Patient).filter(Patient.id == note.patient_id).first()
+    patient = (
+        db.query(Patient)
+        .filter(
+            Patient.id == note.patient_id,
+            Patient.tenant_id == current_user.tenant_id,
+        )
+        .first()
+    )
     patient_name = patient.full_name if patient else "Paciente"
 
     pdf_bytes = _pdf_for_note(note, patient_name)

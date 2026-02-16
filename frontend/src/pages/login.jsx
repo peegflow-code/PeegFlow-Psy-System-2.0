@@ -3,8 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { saveToken } from "../lib/auth";
 
+function saveTenantSlug(slug) {
+  localStorage.setItem("tenant_slug", slug);
+}
+
 export default function Login({ onLoggedIn }) {
   const nav = useNavigate();
+
+  const [tenantSlug, setTenantSlug] = useState(localStorage.getItem("tenant_slug") || "demo");
   const [email, setEmail] = useState("admin@teste.com");
   const [password, setPassword] = useState("123456");
   const [loading, setLoading] = useState(false);
@@ -14,18 +20,31 @@ export default function Login({ onLoggedIn }) {
     e.preventDefault();
     setErr("");
     setLoading(true);
+
+    const slug = (tenantSlug || "").trim().toLowerCase();
+
     try {
+      if (!slug) {
+        setErr("Informe o código da clínica (tenant). Ex: ana, carlos, demo");
+        return;
+      }
+
       const form = new URLSearchParams();
       form.append("username", email);
       form.append("password", password);
 
-      const { data } = await api.post("/auth/login", form, {
+      // ✅ SaaS: login por tenant
+      const { data } = await api.post(`/auth/login/${slug}`, form, {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
+      saveTenantSlug(slug);
       saveToken(data.access_token);
+
       await onLoggedIn?.();
-      nav("/");
+
+      // ✅ entra no tenant correto
+      nav(`/t/${slug}`);
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "Falha no login");
     } finally {
@@ -53,6 +72,21 @@ export default function Login({ onLoggedIn }) {
         )}
 
         <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="text-sm text-slate-600">Clínica / Tenant</label>
+            <input
+              className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-lilac-300"
+              value={tenantSlug}
+              onChange={(e) => setTenantSlug(e.target.value)}
+              placeholder="ex: ana, carlos, demo"
+              type="text"
+              required
+            />
+            <div className="text-xs text-slate-500 mt-1">
+              Use um código curto (slug). Ex: <span className="font-medium">ana</span>
+            </div>
+          </div>
+
           <div>
             <label className="text-sm text-slate-600">Email</label>
             <input
