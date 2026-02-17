@@ -114,10 +114,12 @@ app = FastAPI(title="PeegFlow - Psy System API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # depois você restringe pro domínio do frontend
+    allow_origin_regex=r"^https://.*\.peegflow-psy-system-2-0\.pages\.dev$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 # ✅ Rotas normais
@@ -133,4 +135,4 @@ app.include_router(platform.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "ts": datetime.utcnow().isoformat()}
+    return {"status": "ok", "ts": datetime.utcnow().isoformat(), "cors_version": "v3"}
