@@ -1,27 +1,28 @@
 from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.platform_admin import PlatformAdmin
 from app.core.security import decode_platform_token
 
-oauth2_platform = OAuth2PasswordBearer(tokenUrl="/platform/login")
+bearer = HTTPBearer(auto_error=True)
 
 def get_current_platform_admin(
-    token: str = Depends(oauth2_platform),
+    cred: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> PlatformAdmin:
-    sub = decode_platform_token(token)
-    if not sub:
-        raise HTTPException(status_code=401, detail="Token inválido (platform)")
+    token = cred.credentials
+    admin_id = decode_platform_token(token)
+    if not admin_id:
+        raise HTTPException(status_code=401, detail="Token inválido")
 
-    admin = db.query(PlatformAdmin).filter(
-        PlatformAdmin.id == int(sub),
-        PlatformAdmin.is_active == True
-    ).first()
-
+    admin = (
+        db.query(PlatformAdmin)
+        .filter(PlatformAdmin.id == admin_id, PlatformAdmin.is_active == True)
+        .first()
+    )
     if not admin:
-        raise HTTPException(status_code=401, detail="Sessão inválida")
+        raise HTTPException(status_code=401, detail="Token inválido")
 
     return admin

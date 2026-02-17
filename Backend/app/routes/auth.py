@@ -32,7 +32,7 @@ def register_tenant(payload: RegisterTenantIn, db: Session = Depends(get_db)):
     db.add(admin)
     db.commit()
 
-    token = create_access_token(subject=str(admin.id), tenant_id=tenant.id)
+    token = create_access_token(subject=str(user.id), tenant_id=tenant.id, role=user.role)
     return TokenOut(access_token=token, token_type="bearer")
 
 
@@ -53,7 +53,7 @@ def login_tenant(payload: LoginTenantIn, db: Session = Depends(get_db)):
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
 
-    token = create_access_token(subject=str(user.id), tenant_id=tenant.id)
+    token = create_access_token(subject=str(admin.id), tenant_id=tenant.id, role=admin.role)
     return TokenOut(access_token=token, token_type="bearer")
 
 
