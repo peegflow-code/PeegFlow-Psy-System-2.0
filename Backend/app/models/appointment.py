@@ -10,6 +10,14 @@ class Appointment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
+    # ✅ Multi-tenant (ESSENCIAL)
+    tenant_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
